@@ -710,7 +710,22 @@ def loaded_dashboard(selected: tuple[int, str, str]) -> None:
         st.caption(f"{selected[0]} · {SESSION_LABELS.get(selected[2], selected[2])} · FastF1-powered analysis")
         st.badge("Loaded", icon=":material/check_circle:", color="green")
     with st.spinner(f"Preparing {page.lower()}…"):
-        render_view(page, session, selected)
+        try:
+            render_view(page, session, selected)
+        except Exception as exc:
+            # Streamlit can retain a resource-cached FastF1 object across a
+            # source refresh.  If that object was created before its laps
+            # finished loading, clear it and return to the selection screen
+            # instead of exposing a raw DataNotLoadedError traceback.
+            if exc.__class__.__name__ == "DataNotLoadedError":
+                cached_session.clear()
+                st.session_state.loaded_session_key = None
+                st.session_state.load_error = (
+                    "FastF1 returned an incomplete session for this event. "
+                    "The cached session was cleared; please load it again or choose another session."
+                )
+                st.rerun()
+            raise
 
 
 if "loaded_session_key" not in st.session_state:
