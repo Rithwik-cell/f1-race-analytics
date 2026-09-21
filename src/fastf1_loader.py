@@ -49,7 +49,26 @@ def load_session(season: int, event: str, session_type: str) -> Any:
         session = fastf1.get_session(
             request.season, request.event, request.session_type
         )
-        session.load()
+
+        # Load the core timing data first.  On hosted environments, asking
+        # FastF1 for telemetry, weather, and race-control data in the same
+        # request can return a session object without populating ``_laps``
+        # when one optional endpoint is unavailable.  The dashboard cannot
+        # render any analytical view without laps, so make that dependency
+        # explicit and load optional channels independently.
+        session.load(telemetry=False, weather=False, messages=False)
+        if getattr(session, "_laps", None) is None:
+            raise SessionLoadError(
+                f"FastF1 returned no lap timing data for {request.season} "
+                f"{request.event} ({request.session_type}). Try another session."
+            )
+
+        try:
+            session.load(laps=False, telemetry=False, weather=True, messages=True)
+        except Exception:
+            # Weather and race-control feeds are optional.  Their absence is
+            # already handled by the corresponding dashboard empty states.
+            LOGGER.warning("Optional weather/race-control data unavailable for %s", request)
         return session
     except Exception as exc:  # FastF1 raises several backend-specific errors.
         LOGGER.exception("Unable to load FastF1 session %s", request)
